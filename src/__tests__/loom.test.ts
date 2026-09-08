@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile, symlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { OpenCodeAdapter } from '../agents/opencode';
 import { FileConfigStore } from '../config';
 import type { AgentAdapter, ThreadRepository } from '../domain';
 import { parseSource } from '../domain';
 import { Loom } from '../loom';
+import { ProcessRunner } from '../process';
+import { GitHubThreadRepository } from '../repository';
+import { ignoreCache, withWorkspaceLock } from '../workspace';
 
 let directory: string;
 const revision = 'a'.repeat(40);
@@ -205,6 +209,95 @@ describe('orchestration', () => {
     );
     expect(loom.weave()).rejects.toThrow('No agent configured');
   });
+});
+
+describe('adapters', () => {
+  test('GitHub resolves the exact branch once and checks out its commit', async () => {
+    const calls: string[][] = [];
+    const repository = new GitHubThreadRepository(join(directory, 'cache'), {
+      run: async (command, args) => {
+        expect(command).toBe('git');
+        calls.push(args);
+        return args[0] === 'rev-parse' ? revision : '';
+      },
+    });
+    const snapshot = await repository.resolve('daleal/threads:feature/setup');
+    expect(snapshot.revision).toBe(revision);
+    expect(calls).toContainEqual([
+      'fetch',
+      '--depth=1',
+      '--no-tags',
+      'https://github.com/daleal/threads.git',
+      'refs/heads/feature/setup',
+    ]);
+    expect(calls).toContainEqual(['checkout', '--detach', '--force', revision]);
+  });
+
+  test('validates all missing instructions, rejects directory symlinks, accepts arbitrary reference files', async () => {
+    const repository = new GitHubThreadRepository(directory, new ProcessRunner());
+    await mkdir(join(directory, 'bun', 'references'), { recursive: true });
+    await writeFile(join(directory, 'bun', 'INSTRUCTIONS.md'), 'Anything goes.');
+    await writeFile(join(directory, 'bun', 'references', 'example.ts'), 'export const value = 1;');
+    await symlink(join(directory, 'bun'), join(directory, 'alias'));
+    await repository.validate({ directory, revision }, ['bun']);
+    expect(
+      repository.validate({ directory, revision }, ['absent', 'alias', 'nuxt']),
+    ).rejects.toThrow('absent, alias, nuxt');
+  });
+
+  test('OpenCode gets only the current thread, fresh autonomous sessions, and no model override', async () => {
+    await writeFile(join(directory, 'INSTRUCTIONS.md'), 'Use Bun.');
+    const calls: string[][] = [];
+    const adapter = new OpenCodeAdapter({
+      run: async (command, args, options) => {
+        expect(command).toBe('opencode2');
+        expect(options.cwd).toBe(directory);
+        expect(options.inherit).toBe(true);
+        calls.push(args);
+        return '';
+      },
+    });
+    await adapter.run({ projectDirectory: directory, threadDirectory: directory, name: 'bun' });
+    await adapter.run({ projectDirectory: directory, threadDirectory: directory, name: 'bun' });
+    expect(calls).toHaveLength(2);
+    for (const args of calls) {
+      expect(args.slice(0, 2)).toEqual(['run', '--auto']);
+      expect(args).not.toContain('--session');
+      expect(args).not.toContain('--continue');
+      expect(args).not.toContain('--model');
+      expect(args.at(-1)).toContain('Use Bun.');
+      expect(args.at(-1)).toContain(directory);
+    }
+  });
+
+  test('process failures propagate and successful commands use the project cwd', async () => {
+    const runner = new ProcessRunner();
+    expect(
+      await runner.run(process.execPath, ['-e', 'console.log(process.cwd())'], { cwd: directory }),
+    ).toBe(directory);
+    expect(
+      runner.run(process.execPath, ['-e', 'console.error("failed task"); process.exit(3)'], {
+        cwd: directory,
+      }),
+    ).rejects.toThrow('failed task');
+    expect(runner.run('loom-nonexistent-executable', [], { cwd: directory })).rejects.toThrow(
+      'Cannot start',
+    );
+  });
+});
+
+test('workspace lock excludes concurrent commands and releases after failure', async () => {
+  expect(
+    withWorkspaceLock(directory, async () => {
+      expect(withWorkspaceLock(directory, async () => {})).rejects.toThrow('Another Loom command');
+      throw new Error('failure');
+    }),
+  ).rejects.toThrow('failure');
+  await withWorkspaceLock(directory, async () => {});
+  await writeFile(join(directory, '.gitignore'), 'node_modules');
+  await ignoreCache(directory);
+  await ignoreCache(directory);
+  expect(await readFile(join(directory, '.gitignore'), 'utf8')).toBe('node_modules\n/.loom/\n');
 });
 
 test('source branches support slash-separated names and reject malformed refs', () => {
