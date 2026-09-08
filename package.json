@@ -3,9 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "description": "Compose projects from reusable threads",
+  "bin": {
+    "loom": "src/index.ts"
+  },
   "type": "module",
+  "module": "src/index.ts",
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
+    "dev": "bun run src/index.ts",
     "test": "bun test",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
@@ -13,6 +18,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@oclif/core": "^5.0.0",
     "arkregex": "^0.0.8",
     "jsonc-parser": "^3.3.1"
   },
@@ -24,5 +30,10 @@
   },
   "peerDependencies": {
     "typescript": "^7.0.2"
+  },
+  "oclif": {
+    "bin": "loom",
+    "commands": "./dist/cli/commands",
+    "dirname": "loom"
   }
 }

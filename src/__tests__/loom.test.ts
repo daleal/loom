@@ -5,6 +5,7 @@ import { OpenCodeAdapter } from '../agents/opencode';
 import { FileConfigStore } from '../config';
 import type { AgentAdapter, ThreadRepository } from '../domain';
 import { parseSource } from '../domain';
+import { exists } from '../filesystem';
 import { Loom } from '../loom';
 import { ProcessRunner } from '../process';
 import { GitHubThreadRepository } from '../repository';
@@ -310,4 +311,94 @@ test('source branches support slash-separated names and reject malformed refs', 
   ]) {
     expect(() => parseSource(source)).toThrow();
   }
+});
+
+test('CLI end-to-end: init, add, autonomous subprocesses, persisted state, and no-op reweave', async () => {
+  const binaryDirectory = join(directory, 'bin');
+  await mkdir(binaryDirectory);
+  await writeFile(
+    join(binaryDirectory, 'git'),
+    `#!${process.execPath}
+import { mkdir, writeFile } from 'node:fs/promises';
+const command = process.argv[2];
+if (command === 'init') await mkdir('.git', { recursive: true });
+if (command === 'rev-parse') console.log('${revision}');
+if (command === 'checkout') {
+  for (const name of ['bun', 'nuxt']) {
+    await mkdir(name, { recursive: true });
+    await writeFile(name + '/INSTRUCTIONS.md', 'Implement ' + name);
+  }
+}
+`,
+    { mode: 0o755 },
+  );
+  await writeFile(
+    join(binaryDirectory, 'opencode2'),
+    `#!${process.execPath}
+import { appendFile, readFile } from 'node:fs/promises';
+const args = process.argv.slice(2);
+if (args[0] !== 'run' || !args.includes('--auto') || args.includes('--session')) process.exit(2);
+const prompt = args.at(-1);
+if (prompt.includes('Implement nuxt')) {
+  if ((await readFile('applied.txt', 'utf8')) !== 'bun\\n') process.exit(3);
+  await appendFile('applied.txt', 'nuxt\\n');
+} else if (prompt.includes('Implement bun')) {
+  await appendFile('applied.txt', 'bun\\n');
+} else process.exit(4);
+`,
+    { mode: 0o755 },
+  );
+  const entrypoint = resolve('src/index.ts');
+  const run = async (...args: string[]) => {
+    const child = Bun.spawn([process.execPath, entrypoint, ...args], {
+      cwd: directory,
+      env: { ...process.env, PATH: `${binaryDirectory}:${process.env.PATH}` },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const [code, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    return { code, stdout, stderr };
+  };
+  const help = await run('--help');
+  expect(help.code).toBe(0);
+  for (const name of ['init', 'add', 'weave']) expect(help.stdout).toContain(name);
+  expect((await run()).code).toBe(0);
+  for (const name of ['init', 'add', 'weave']) {
+    const commandHelp = await run(name, '-h');
+    expect(commandHelp.code).toBe(0);
+    expect(commandHelp.stdout).toContain(`loom ${name}`);
+  }
+  for (const args of [
+    ['remove', 'bun'],
+    ['init'],
+    ['init', 'daleal/threads', 'extra'],
+    ['init', 'daleal/threads', '--agent', ''],
+    ['add'],
+    ['add', 'bun', '--agent', 'opencode'],
+    ['weave', 'extra'],
+    ['weave', '--unknown'],
+    ['weave', '--agent'],
+  ]) {
+    const result = await run(...args);
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).not.toBe('');
+  }
+  expect(await exists(join(directory, '.loom'))).toBe(false);
+  expect(await exists(join(directory, 'loom.jsonc'))).toBe(false);
+  expect((await run('init', 'daleal/threads:dev', '--agent', 'opencode')).code).toBe(0);
+  expect((await run('init', 'other/repo')).code).toBe(1);
+  expect((await run('add', 'bun', 'nuxt')).code).toBe(0);
+  const result = await run('weave');
+  expect(result.stderr).toBe('');
+  expect(result.code).toBe(0);
+  expect(await readFile(join(directory, 'applied.txt'), 'utf8')).toBe('bun\nnuxt\n');
+  const config = await new FileConfigStore(directory).read();
+  expect(config.source).toBe('daleal/threads:dev');
+  expect(config.threads.map((thread) => thread.applied)).toEqual([{ revision }, { revision }]);
+  expect((await run('weave')).stdout).toContain('No pending threads');
+  expect(await readFile(join(directory, 'applied.txt'), 'utf8')).toBe('bun\nnuxt\n');
 });
