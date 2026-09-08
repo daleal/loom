@@ -1,0 +1,28 @@
+{
+  "name": "loom",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Compose projects from reusable threads",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "test": "bun test",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "lint": "oxlint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "arkregex": "^0.0.8",
+    "jsonc-parser": "^3.3.1"
+  },
+  "devDependencies": {
+    "@daleal/oxd-config-ts": "^0.1.0",
+    "@types/bun": "latest",
+    "oxfmt": "^0.67.0",
+    "oxlint": "^1.82.0"
+  },
+  "peerDependencies": {
+    "typescript": "^7.0.2"
+  }
+}
