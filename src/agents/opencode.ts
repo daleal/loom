@@ -4,7 +4,16 @@ import type { AgentAdapter, AgentTask } from '../domain';
 import type { CommandRunner } from '../process';
 
 export class OpenCodeAdapter implements AgentAdapter {
-  constructor(private readonly commands: CommandRunner) {}
+  constructor(
+    private readonly commands: CommandRunner,
+    private readonly projectDirectory: string,
+  ) {}
+
+  async isModelValid(model: string): Promise<boolean> {
+    if (!model.trim()) return false;
+    const output = await this.commands.run('opencode2', ['models'], { cwd: this.projectDirectory });
+    return output.split('\n').some((line) => line.trim() === model);
+  }
 
   async run(task: AgentTask): Promise<void> {
     const instructions = await readFile(join(task.threadDirectory, 'INSTRUCTIONS.md'), 'utf8');
@@ -18,7 +27,14 @@ export class OpenCodeAdapter implements AgentAdapter {
     ].join('\n');
     await this.commands.run(
       'opencode2',
-      ['run', '--auto', '--title', `[loom] ${task.name}`, prompt],
+      [
+        'run',
+        '--auto',
+        '--title',
+        `[loom] ${task.name}`,
+        ...(task.model ? ['--model', task.model] : []),
+        prompt,
+      ],
       {
         cwd: task.projectDirectory,
         inherit: true,

@@ -13,11 +13,32 @@ export type LoomDependencies = {
 export class Loom {
   constructor(private readonly dependencies: LoomDependencies) {}
 
-  async init(source: string, agent?: string): Promise<void> {
+  private agent(name?: string): AgentAdapter {
+    const { agents } = this.dependencies;
+    if (!name)
+      throw new Error('No agent configured. Pass --agent or set agent in loom.jsonc.');
+    const adapter = agents.get(name);
+    if (!adapter)
+      throw new Error(`Unsupported agent: ${name}. Available: ${[...agents.keys()].join(', ')}.`);
+    return adapter;
+  }
+
+  private async validateModel(agent: AgentAdapter, model?: string): Promise<void> {
+    if (model === undefined) return;
+    if (!model.trim()) throw new Error('model must be a nonempty string.');
+    if (!(await agent.isModelValid(model))) {
+      throw new Error(`Invalid model for the selected agent: ${model}.`);
+    }
+  }
+
+  async init(source: string, agent?: string, model?: string): Promise<void> {
     const parsed = parseSource(source);
+    if (agent !== undefined || model !== undefined)
+      await this.validateModel(this.agent(agent), model);
     await this.dependencies.config.create({
       source: `${parsed.repository}:${parsed.branch}`,
       ...(agent ? { agent } : {}),
+      ...(model !== undefined ? { model } : {}),
       threads: [],
     });
     this.dependencies.log?.('Created loom.jsonc.');
@@ -41,17 +62,13 @@ export class Loom {
     );
   }
 
-  async weave(overrideAgent?: string): Promise<void> {
-    const { config, repository, agents, projectDirectory, log } = this.dependencies;
+  async weave(overrideAgent?: string, overrideModel?: string): Promise<void> {
+    const { config, repository, projectDirectory, log } = this.dependencies;
     const current = await config.read();
     const agentName = overrideAgent ?? current.agent;
-    if (!agentName)
-      throw new Error('No agent configured. Pass --agent or set agent in loom.jsonc.');
-    const agent = agents.get(agentName);
-    if (!agent)
-      throw new Error(
-        `Unsupported agent: ${agentName}. Available: ${[...agents.keys()].join(', ')}.`,
-      );
+    const agent = this.agent(agentName);
+    const model = overrideModel ?? current.model;
+    await this.validateModel(agent, model);
     const pending = current.threads.filter((thread) => thread.applied === null);
     if (!pending.length) {
       log?.('No pending threads.');
@@ -68,6 +85,7 @@ export class Loom {
         projectDirectory,
         threadDirectory: join(snapshot.directory, thread.name),
         name: thread.name,
+        ...(model !== undefined ? { model } : {}),
       });
       await config.markApplied(thread.name, snapshot.revision);
       log?.(`Applied ${thread.name}.`);

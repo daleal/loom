@@ -1,5 +1,5 @@
 import { Args } from '@oclif/core';
-import { agentFlag, LoomCommand } from '../index';
+import { agentFlag, modelFlag, LoomCommand } from '../index';
 
 export default class Init extends LoomCommand {
   static override description =
@@ -14,10 +14,11 @@ export default class Init extends LoomCommand {
   };
   static override flags = {
     agent: agentFlag('Default coding agent. Available: opencode (requires opencode2).'),
+    model: modelFlag('Default model for the coding agent. Requires --agent.'),
   };
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(Init);
-    await this.withLoom((loom) => loom.init(args.source, flags.agent));
+    await this.withLoom((loom) => loom.init(args.source, flags.agent, flags.model));
   }
 }

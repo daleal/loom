@@ -39,6 +39,15 @@ If an agent fails or is interrupted, weaving stops. Completed threads stay appli
 
 ## Configuration
 
+Select a model at initialization or override it for one weave:
+
+```sh
+loom init daleal/threads --agent opencode --model openai/gpt-5.6-sol
+loom weave --model openai/gpt-5.6-luna
+```
+
+`init --model` saves the model and requires `--agent`. `weave --model` overrides the saved model for that execution. Without either, the agent uses its own default. Loom validates model IDs before saving and before weaving. For OpenCode, use an exact ID from `opencode2 models` in the project directory.
+
 Commands prefer `loom.jsonc` over `loom.json`. An invalid JSONC file produces an error rather than falling back to JSON. Updates preserve comments and use targeted edits.
 
 ```jsonc
@@ -85,13 +94,13 @@ For useful autonomous threads, include the decisions you already know, explain w
 - `src/loom.ts` coordinates selection, validation, ordered execution, and completion state through those interfaces.
 - `src/config.ts` handles JSON/JSONC discovery and edits.
 - `src/repository.ts` resolves GitHub branches and checks out thread files through Git.
-- `src/agents/opencode.ts` runs `opencode2 run --auto` without session continuation or model overrides. OpenCode's explicitly denied permissions still apply.
+- `src/agents/opencode.ts` validates models with `opencode2 models` and runs `opencode2 run --auto`, passing the selected model when supplied. OpenCode's explicitly denied permissions still apply.
 - `src/process.ts` owns subprocess execution and interruption handling.
 - `src/cli/commands/` contains the oclif command classes and their argument, flag, and help definitions.
 - `src/cli/index.ts` provides the shared command base with workspace locking and application setup; `src/index.ts` starts oclif.
 - `src/workspace.ts` handles the command lock and cache ignore entry.
 
-To support another agent, implement `AgentAdapter` and register it in `src/cli/index.ts`. `run` must start a fresh autonomous session, resolve on success, and reject on failure or interruption.
+To support another agent, implement `AgentAdapter` and register it in `src/cli/index.ts`. `isModelValid(model)` checks a model ID against available models. `run` must honor the task's optional model, start a fresh autonomous session, resolve on success, and reject on failure or interruption.
 
 ## Development
 

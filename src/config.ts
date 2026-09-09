@@ -18,6 +18,9 @@ const validate: (value: unknown) => asserts value is LoomConfig = (value) => {
   if (config.agent !== undefined && (typeof config.agent !== 'string' || !config.agent.trim())) {
     throw new Error('agent must be a nonempty string.');
   }
+  if (config.model !== undefined && (typeof config.model !== 'string' || !config.model.trim())) {
+    throw new Error('model must be a nonempty string.');
+  }
   if (!Array.isArray(config.threads)) throw new Error('threads must be an ordered array.');
   const names = new Set<string>();
   for (const thread of config.threads) {

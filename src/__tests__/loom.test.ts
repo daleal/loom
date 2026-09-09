@@ -43,6 +43,7 @@ const setup = async (agent?: AgentAdapter) => {
       [
         'opencode',
         agent ?? {
+          isModelValid: async (model) => ['provider/default', 'provider/override'].includes(model),
           run: async (task) => {
             calls.push(`run:${task.name}`);
           },
@@ -106,6 +107,20 @@ describe('configuration', () => {
 });
 
 describe('orchestration', () => {
+  test('init validates models before saving', async () => {
+    const { loom, config } = await setup();
+    await rm(join(directory, 'loom.jsonc'));
+    await expect(loom.init('daleal/threads', 'opencode', 'invalid')).rejects.toThrow(
+      'Invalid model',
+    );
+    await expect(loom.init('daleal/threads', undefined, 'provider/default')).rejects.toThrow(
+      'No agent',
+    );
+    expect(await exists(join(directory, 'loom.jsonc'))).toBe(false);
+    await loom.init('daleal/threads', 'opencode', 'provider/default');
+    expect((await config.read()).model).toBe('provider/default');
+  });
+
   test('add validates the full batch, preserves order, and does not duplicate', async () => {
     const { loom, calls, config } = await setup();
     await loom.add(['bun', 'nuxt', 'bun']);
@@ -149,6 +164,7 @@ describe('orchestration', () => {
     const executions: string[] = [];
     let fail = true;
     const agent: AgentAdapter = {
+      isModelValid: async () => true,
       run: async (task) => {
         executions.push(task.name);
         if (task.name === 'bun') await writeFile(join(task.projectDirectory, 'code.txt'), 'bun');
@@ -192,6 +208,7 @@ describe('orchestration', () => {
         [
           'other',
           {
+            isModelValid: async () => true,
             run: async () => {
               calls.push('other');
             },
@@ -213,6 +230,34 @@ describe('orchestration', () => {
 });
 
 describe('adapters', () => {
+  test('OpenCode validates exact model IDs in the project and passes the selected model', async () => {
+    await writeFile(join(directory, 'INSTRUCTIONS.md'), 'Use Bun.');
+    const calls: string[][] = [];
+    const adapter = new OpenCodeAdapter(
+      {
+        run: async (command, args, options) => {
+          expect(command).toBe('opencode2');
+          expect(options.cwd).toBe(directory);
+          calls.push(args);
+          return 'provider/default\r\nprovider/override\r\n';
+        },
+      },
+      directory,
+    );
+    expect(await adapter.isModelValid('provider/default')).toBe(true);
+    expect(await adapter.isModelValid('provider/def')).toBe(false);
+    expect(await adapter.isModelValid('')).toBe(false);
+    expect(calls.every((args) => args.join() === 'models')).toBe(true);
+    await adapter.run({
+      projectDirectory: directory,
+      threadDirectory: directory,
+      name: 'bun',
+      model: 'provider/override',
+    });
+    expect(calls.at(-1)).toContain('--model');
+    expect(calls.at(-1)).toContain('provider/override');
+  });
+
   test('GitHub resolves the exact branch once and checks out its commit', async () => {
     const calls: string[][] = [];
     const repository = new GitHubThreadRepository(join(directory, 'cache'), {
@@ -249,15 +294,18 @@ describe('adapters', () => {
   test('OpenCode gets only the current thread, fresh autonomous sessions, and no model override', async () => {
     await writeFile(join(directory, 'INSTRUCTIONS.md'), 'Use Bun.');
     const calls: string[][] = [];
-    const adapter = new OpenCodeAdapter({
-      run: async (command, args, options) => {
-        expect(command).toBe('opencode2');
-        expect(options.cwd).toBe(directory);
-        expect(options.inherit).toBe(true);
-        calls.push(args);
-        return '';
+    const adapter = new OpenCodeAdapter(
+      {
+        run: async (command, args, options) => {
+          expect(command).toBe('opencode2');
+          expect(options.cwd).toBe(directory);
+          expect(options.inherit).toBe(true);
+          calls.push(args);
+          return '';
+        },
       },
-    });
+      directory,
+    );
     await adapter.run({ projectDirectory: directory, threadDirectory: directory, name: 'bun' });
     await adapter.run({ projectDirectory: directory, threadDirectory: directory, name: 'bun' });
     expect(calls).toHaveLength(2);
@@ -337,7 +385,9 @@ if (command === 'checkout') {
     `#!${process.execPath}
 import { appendFile, readFile } from 'node:fs/promises';
 const args = process.argv.slice(2);
+if (args[0] === 'models') { console.log('provider/default\\nprovider/override'); process.exit(0); }
 if (args[0] !== 'run' || !args.includes('--auto') || args.includes('--session')) process.exit(2);
+if (args[args.indexOf('--model') + 1] !== 'provider/override') process.exit(5);
 const prompt = args.at(-1);
 if (prompt.includes('Implement nuxt')) {
   if ((await readFile('applied.txt', 'utf8')) !== 'bun\\n') process.exit(3);
@@ -389,15 +439,19 @@ if (prompt.includes('Implement nuxt')) {
   }
   expect(await exists(join(directory, '.loom'))).toBe(false);
   expect(await exists(join(directory, 'loom.jsonc'))).toBe(false);
-  expect((await run('init', 'daleal/threads:dev', '--agent', 'opencode')).code).toBe(0);
+  expect(
+    (await run('init', 'daleal/threads:dev', '--agent', 'opencode', '--model', 'provider/default'))
+      .code,
+  ).toBe(0);
   expect((await run('init', 'other/repo')).code).toBe(1);
   expect((await run('add', 'bun', 'nuxt')).code).toBe(0);
-  const result = await run('weave');
+  const result = await run('weave', '--model', 'provider/override');
   expect(result.stderr).toBe('');
   expect(result.code).toBe(0);
   expect(await readFile(join(directory, 'applied.txt'), 'utf8')).toBe('bun\nnuxt\n');
   const config = await new FileConfigStore(directory).read();
   expect(config.source).toBe('daleal/threads:dev');
+  expect(config.model).toBe('provider/default');
   expect(config.threads.map((thread) => thread.applied)).toEqual([{ revision }, { revision }]);
   expect((await run('weave')).stdout).toContain('No pending threads');
   expect(await readFile(join(directory, 'applied.txt'), 'utf8')).toBe('bun\nnuxt\n');

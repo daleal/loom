@@ -14,6 +14,7 @@ export type Thread = {
 export type LoomConfig = {
   source: string;
   agent?: string;
+  model?: string;
   threads: Thread[];
 };
 
@@ -38,10 +39,12 @@ export type AgentTask = {
   projectDirectory: string;
   threadDirectory: string;
   name: string;
+  model?: string;
 };
 
 /** Resolve only on successful completion; reject on failure or interruption. */
 export type AgentAdapter = {
+  isModelValid(model: string): Promise<boolean>;
   run(task: AgentTask): Promise<void>;
 };
 

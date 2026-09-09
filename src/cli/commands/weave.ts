@@ -1,4 +1,4 @@
-import { agentFlag, LoomCommand } from '../index';
+import { agentFlag, modelFlag, LoomCommand } from '../index';
 
 export default class Weave extends LoomCommand {
   static override description =
@@ -9,10 +9,11 @@ export default class Weave extends LoomCommand {
   ];
   static override flags = {
     agent: agentFlag('Override the configured agent for this execution. Available: opencode.'),
+    model: modelFlag('Override the configured model for this execution.'),
   };
 
   async run(): Promise<void> {
     const { flags } = await this.parse(Weave);
-    await this.withLoom((loom) => loom.weave(flags.agent));
+    await this.withLoom((loom) => loom.weave(flags.agent, flags.model));
   }
 }
