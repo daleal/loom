@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import type { AgentAdapter, ConfigStore, ThreadRepository } from './domain';
+import type { AgentAdapter, ConfigKey, ConfigStore, ThreadRepository } from './domain';
 import { parseSource, validateThreadName } from './domain';
 
 export type LoomDependencies = {
@@ -16,7 +16,7 @@ export class Loom {
   private agent(name?: string): AgentAdapter {
     const { agents } = this.dependencies;
     if (!name)
-      throw new Error('No agent configured. Pass --agent or set agent in loom.jsonc.');
+      throw new Error('No agent configured. Pass --agent or run loom config set agent <name>.');
     const adapter = agents.get(name);
     if (!adapter)
       throw new Error(`Unsupported agent: ${name}. Available: ${[...agents.keys()].join(', ')}.`);
@@ -42,6 +42,20 @@ export class Loom {
       threads: [],
     });
     this.dependencies.log?.('Created loom.jsonc.');
+  }
+
+  async setConfig(key: ConfigKey, value: string): Promise<void> {
+    if (!value.trim()) throw new Error(`${key} must be a nonempty string.`);
+    const current = await this.dependencies.config.read();
+    const agent = this.agent(key === 'agent' ? value : current.agent);
+    await this.validateModel(agent, key === 'model' ? value : current.model);
+    await this.dependencies.config.set(key, value);
+    this.dependencies.log?.(`Set ${key} to ${value}.`);
+  }
+
+  async unsetConfig(key: ConfigKey): Promise<void> {
+    await this.dependencies.config.set(key, undefined);
+    this.dependencies.log?.(`Unset ${key}.`);
   }
 
   async add(names: string[]): Promise<void> {

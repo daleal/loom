@@ -34,6 +34,12 @@
   "oclif": {
     "bin": "loom",
     "commands": "./dist/cli/commands",
-    "dirname": "loom"
+    "dirname": "loom",
+    "topicSeparator": " ",
+    "topics": {
+      "config": {
+        "description": "Configure the CLI"
+      }
+    }
   }
 }

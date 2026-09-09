@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { regex } from 'arkregex';
 import { applyEdits, modify, parse, printParseErrorCode } from 'jsonc-parser';
 import type { ParseError } from 'jsonc-parser';
-import type { ConfigStore, LoomConfig } from './domain';
+import type { ConfigKey, ConfigStore, LoomConfig } from './domain';
 import { parseSource, validateThreadName } from './domain';
 import { exists } from './filesystem';
 
@@ -73,6 +73,12 @@ export class FileConfigStore implements ConfigStore {
 
   async read(): Promise<LoomConfig> {
     return (await this.document()).config;
+  }
+
+  async set(key: ConfigKey, value: string | undefined): Promise<void> {
+    const config = await this.read();
+    validate({ ...config, [key]: value });
+    await this.edit([{ path: [key], value }]);
   }
 
   private async edit(updates: { path: (string | number)[]; value: unknown }[]): Promise<void> {

@@ -48,6 +48,15 @@ loom weave --model openai/gpt-5.6-luna
 
 `init --model` saves the model and requires `--agent`. `weave --model` overrides the saved model for that execution. Without either, the agent uses its own default. Loom validates model IDs before saving and before weaving. For OpenCode, use an exact ID from `opencode2 models` in the project directory.
 
+```sh
+loom config set agent opencode
+loom config set model openai/gpt-5.6-sol
+loom config unset model
+loom config unset agent
+```
+
+`config` edits the existing project configuration. Supported keys are `agent` and `model`. Setting a model requires a configured agent; changing agents revalidates any saved model. Unsetting a key removes only that key and succeeds if it is already absent. After unsetting the agent, configure one or pass `weave --agent` before weaving.
+
 Commands prefer `loom.jsonc` over `loom.json`. An invalid JSONC file produces an error rather than falling back to JSON. Updates preserve comments and use targeted edits.
 
 ```jsonc

@@ -107,7 +107,7 @@ describe('configuration', () => {
 });
 
 describe('orchestration', () => {
-  test('init validates models before saving', async () => {
+  test('init validates before saving; config edits preserve comments and unset is idempotent', async () => {
     const { loom, config } = await setup();
     await rm(join(directory, 'loom.jsonc'));
     await expect(loom.init('daleal/threads', 'opencode', 'invalid')).rejects.toThrow(
@@ -119,6 +119,52 @@ describe('orchestration', () => {
     expect(await exists(join(directory, 'loom.jsonc'))).toBe(false);
     await loom.init('daleal/threads', 'opencode', 'provider/default');
     expect((await config.read()).model).toBe('provider/default');
+    const path = join(directory, 'loom.jsonc');
+    await writeFile(path, (await readFile(path, 'utf8')).replace('{', '{\n  // Keep me'));
+    const before = await readFile(path, 'utf8');
+    await expect(loom.setConfig('model', 'invalid')).rejects.toThrow('Invalid model');
+    await expect(loom.setConfig('agent', 'unknown')).rejects.toThrow('Unsupported agent');
+    expect(await readFile(path, 'utf8')).toBe(before);
+    await loom.setConfig('model', 'provider/override');
+    expect((await config.read()).model).toBe('provider/override');
+    await loom.unsetConfig('model');
+    await loom.unsetConfig('model');
+    await loom.unsetConfig('agent');
+    expect((await config.read()).model).toBeUndefined();
+    expect((await config.read()).agent).toBeUndefined();
+    await expect(loom.setConfig('model', 'provider/default')).rejects.toThrow('No agent');
+    await loom.setConfig('agent', 'opencode');
+    expect(await readFile(path, 'utf8')).toContain('// Keep me');
+  });
+
+  test('weave validates the effective model before repository access and overrides transiently', async () => {
+    const models: (string | undefined)[] = [];
+    const { loom, config, calls } = await setup({
+      isModelValid: async (model) => model === 'provider/override',
+      run: async (task) => {
+        models.push(task.model);
+      },
+    });
+    await config.set('model', 'provider/stale');
+    await config.append(['bun', 'nuxt']);
+    await expect(loom.weave()).rejects.toThrow('Invalid model');
+    expect(calls).toEqual([]);
+    await loom.weave(undefined, 'provider/override');
+    expect(models).toEqual(['provider/override', 'provider/override']);
+    expect((await config.read()).model).toBe('provider/stale');
+  });
+
+  test('changing agent revalidates the saved model before persisting', async () => {
+    const { config, repository } = await setup();
+    await config.set('model', 'provider/default');
+    const loom = new Loom({
+      config,
+      repository,
+      projectDirectory: directory,
+      agents: new Map([['other', { isModelValid: async () => false, run: async () => {} }]]),
+    });
+    await expect(loom.setConfig('agent', 'other')).rejects.toThrow('Invalid model');
+    expect((await config.read()).agent).toBe('opencode');
   });
 
   test('add validates the full batch, preserves order, and does not duplicate', async () => {
@@ -443,6 +489,14 @@ if (prompt.includes('Implement nuxt')) {
     (await run('init', 'daleal/threads:dev', '--agent', 'opencode', '--model', 'provider/default'))
       .code,
   ).toBe(0);
+  expect((await run('config', 'set', 'model', 'invalid')).code).toBe(1);
+  expect((await run('config', 'unset', 'source')).code).not.toBe(0);
+  expect((await run('config', 'set', 'model')).code).not.toBe(0);
+  expect((await run('config', 'unset', 'model', 'extra')).code).not.toBe(0);
+  expect((await run('config', 'unset', 'model')).code).toBe(0);
+  expect((await run('config', 'unset', 'agent')).code).toBe(0);
+  expect((await run('config', 'set', 'agent', 'opencode')).code).toBe(0);
+  expect((await run('config', 'set', 'model', 'provider/default')).code).toBe(0);
   expect((await run('init', 'other/repo')).code).toBe(1);
   expect((await run('add', 'bun', 'nuxt')).code).toBe(0);
   const result = await run('weave', '--model', 'provider/override');

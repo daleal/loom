@@ -18,9 +18,12 @@ export type LoomConfig = {
   threads: Thread[];
 };
 
+export type ConfigKey = 'agent' | 'model';
+
 export type ConfigStore = {
   create(config: LoomConfig): Promise<void>;
   read(): Promise<LoomConfig>;
+  set(key: ConfigKey, value: string | undefined): Promise<void>;
   append(names: string[]): Promise<void>;
   markApplied(name: string, revision: string): Promise<void>;
 };
