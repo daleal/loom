@@ -16,19 +16,19 @@ bun link
 Run Loom from the root of your project:
 
 ```sh
-loom init daleal/threads --agent opencode
+loom init daleal/lthreads --agent opencode
 loom add bun nuxt env-variables
 loom weave
 ```
 
-`init` creates `loom.jsonc`. The source is one public GitHub repository. Its branch defaults to `main`, regardless of the repository's default branch. Use `daleal/threads:develop` or `daleal/threads:feature/setup` to select another branch. Initialization fails if either `loom.jsonc` or `loom.json` already exists.
+`init` creates `loom.jsonc`. The source is one public GitHub repository. Its branch defaults to `main`, regardless of the repository's default branch. Use `daleal/lthreads:develop` or `daleal/lthreads:feature/setup` to select another branch. Initialization fails if either `loom.jsonc` or `loom.json` already exists.
 
 `add` checks every requested thread against the configured branch before changing the configuration. New names go at the end in argument order. Existing names keep their position and applied state. Adding a thread does not pin its version.
 
 `weave` uses `--agent` when supplied, otherwise the configured agent. The override does not change the configuration. Missing or unsupported agents produce an error. Only `opencode` is currently supported.
 
 ```sh
-loom init daleal/threads:develop
+loom init daleal/lthreads:develop
 loom add bun
 loom weave --agent opencode
 ```
@@ -42,7 +42,7 @@ If an agent fails or is interrupted, weaving stops. Completed threads stay appli
 Select a model at initialization or override it for one weave:
 
 ```sh
-loom init daleal/threads --agent opencode --model openai/gpt-5.6-sol
+loom init daleal/lthreads --agent opencode --model openai/gpt-5.6-sol
 loom weave --model openai/gpt-5.6-luna
 ```
 
@@ -61,7 +61,7 @@ Commands prefer `loom.jsonc` over `loom.json`. An invalid JSONC file produces an
 
 ```jsonc
 {
-  "source": "daleal/threads:main",
+  "source": "daleal/lthreads:main",
   "agent": "opencode",
   "threads": [
     // Execution follows this order.
